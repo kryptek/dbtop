@@ -26,7 +26,7 @@ If you don't have environmental variables set for your MySQL database,
 run dbtop with command line arguments:
 
 ```bash
-  ruby dbtop.rb -u #{user} -p #{pass} -h #{host} -d #{database}
+  ruby dbtop.rb -u #{user} -p #{pass} -h #{host} -d #{database} -i 1
 ```
 
 If you have environmental variables set for your MySQL database already,
@@ -35,6 +35,12 @@ just run dbtop :)
 ```bash
   ruby dbtop.rb
 ```
+
+```bash
+  ruby dbtop.rb -i 1
+```
+
+Note: You can quit the application by pressing 'q'
 
 Requirements
 ------------
