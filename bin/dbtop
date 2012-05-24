@@ -1,0 +1,139 @@
+#!/usr/bin/env ruby
+#          :::::::::  :::::::::: :::     :::  ::::::::  :::::::::   ::::::::
+#        :+:    :+: :+:        :+:     :+: :+:    :+: :+:    :+: :+:    :+:
+#       +:+    +:+ +:+        +:+     +:+ +:+    +:+ +:+    +:+ +:+
+#      +#+    +:+ +#++:++#   +#+     +:+ +#+    +:+ +#++:++#+  +#++:++#++
+#     +#+    +#+ +#+         +#+   +#+  +#+    +#+ +#+               +#+
+#    #+#    #+# #+#          #+#+#+#   #+#    #+# #+#        #+#    #+#
+#   #########  ##########     ###      ########  ###         ########
+#
+#                                                @ Zumba Fitness, LLC
+# ------------------------------------------------------------------------------
+# filename: dbtop.rb
+# author: alfred.moreno@zumba.com
+# purpose: Process monitor for MySQL Databases; ignores 'Sleep' processes.
+# ------------------------------------------------------------------------------
+require 'curses'
+require 'terminal-table'
+require 'optparse'
+include Curses
+
+class MysqlTop
+
+  #############################################################################
+  # Public: Initialize the MysqlTop class and screen buffer
+  #
+  # Returns: nothing
+  #############################################################################
+  def initialize(options)
+
+    @user = options[:user] || ENV['MYSQL_USER']
+    @pass = options[:pass] || ENV['MYSQL_PASSWORD']
+    @host = options[:host] || ENV['MYSQL_HOST']
+    @db = options[:db] || ENV['MYSQL_DATABASE']
+    @port = 3306 || ENV['MYSQL_PORT']
+
+    validate
+
+    tbl = Terminal::Table.new headings: [
+      'Time',
+      'User',
+      'Host',
+      'DB',
+      'State',
+      'Cmd'
+    ]
+
+    loop do
+      %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "show processlist"].lines.each do |line|
+        next if line.include?('Sleep')
+        line = line.split(' ')
+        row = {
+          id: line[0],
+          user: line[1],
+          host: line[2],
+          db: line[3],
+          cmd: line[4],
+          time: line[5],
+          state: line[6],
+          info: line[7]
+        }
+        tbl << [line[5], line[1], line[2], line[3], line[6], line[4]]
+      end
+      write(0,0,tbl.to_s)
+      tbl.rows = tbl.rows.clear
+      sleep 1
+    end
+
+  end
+
+  #############################################################################
+  # Public: Validates that credentials for connecting to the DB are complete
+  #
+  # Returns: nothing
+  #############################################################################
+  def validate
+    [@user,@pass,@host,@db].each { |param|
+      raise "Insufficient parameters to connect to MySQL Database!" if param.nil?
+    }
+  end
+
+  #############################################################################
+  # Public: Initializes the screen buffer with specified options.
+  # 
+  # Returns: nothing
+  #############################################################################
+  def init_screen
+    nl
+    Curses.noecho                 # Don't echo characters to the screen.
+    crmode
+    Curses.init_screen            # Initialize the screen buffer.
+    Curses.start_color
+    #Curses.color_set(COLOR_GREEN)
+    Curses.stdscr.keypad(true)    # Enable arrow keys.
+    Curses.doupdate
+    curs_set(0,0)
+    begin
+      yield
+    ensure
+      Curses.close_screen
+    end
+  end
+
+  #############################################################################
+  # Public: Writes text at a specific set of coordinates on your screen
+  #
+  # Returns: nothing
+  #############################################################################
+  def write(x,y,text)
+    Curses.setpos(x,y)
+    Curses.addstr(text)
+    for x in 1..Curses.lines
+      Curses.deleteln
+    end
+    Curses.setpos(text.lines.count-1,0)
+    Curses.addstr(text.lines.take(3)[2])
+    Curses.refresh
+  end
+
+end
+
+options = {}
+opts = OptionParser.new do |opts|
+  opts.on('-u U', String, 'Database username') do |user|
+    options[:user] = user
+  end
+  opts.on('-p P', String, 'Database password') do |password|
+    options[:pass] = password
+  end
+  opts.on('-h H', String, 'Database hostname') do |hostname|
+    options[:host] = hostname
+  end
+  opts.on('-d D', String, 'Database to use') do |database|
+    options[:db] = database
+  end
+end
+opts.parse!(ARGV)
+
+mysqltop = MysqlTop.new(options)
+
