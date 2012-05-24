@@ -32,7 +32,7 @@ class MysqlTop
     @host = options[:host] || ENV['MYSQL_HOST']
     @db = options[:db] || ENV['MYSQL_DATABASE']
     @port = 3306 || ENV['MYSQL_PORT']
-
+    @interval = options[:interval] || 5
     validate
 
     tbl = Terminal::Table.new headings: [
@@ -44,10 +44,20 @@ class MysqlTop
       'Cmd'
     ]
 
+    begin
+      Curses.timeout=0
     loop do
+
+      case getch
+      when 'q'
+        exit
+      end
+
       %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "show processlist"].lines.each do |line|
         next if line.include?('Sleep')
+
         line = line.split(' ')
+
         row = {
           id: line[0],
           user: line[1],
@@ -60,9 +70,14 @@ class MysqlTop
         }
         tbl << [line[5], line[1], line[2], line[3], line[6], line[4]]
       end
+
       write(0,0,tbl.to_s)
       tbl.rows = tbl.rows.clear
-      sleep 1
+      sleep @interval
+
+    end
+    ensure
+      close_screen
     end
 
   end
@@ -131,6 +146,9 @@ opts = OptionParser.new do |opts|
   end
   opts.on('-d D', String, 'Database to use') do |database|
     options[:db] = database
+  end
+  opts.on('-i I', Integer, 'Integer for refresh') do |interval|
+    options[:interval] = interval
   end
 end
 opts.parse!(ARGV)
