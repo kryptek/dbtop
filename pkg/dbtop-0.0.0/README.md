@@ -58,6 +58,12 @@ Install all required gems by running:
 bundle install
 ```
 
+Install the gem manually by running:
+
+```bash
+rake gem:install
+```
+
 in the application folder.
 
 Author
