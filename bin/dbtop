@@ -11,7 +11,11 @@
 # ------------------------------------------------------------------------------
 # filename: dbtop.rb
 # author: alfred.moreno@zumba.com
-# purpose: Process monitor for MySQL Databases; ignores 'Sleep' processes.
+#
+# TODO: Add scrolling to the process window.
+#
+# TODO: VIM style navigation for the processlist.  (5j, 5k) 5up, 5down
+#
 # ------------------------------------------------------------------------------
 require 'curses'
 require 'terminal-table'
@@ -27,15 +31,40 @@ class MysqlTop
   #############################################################################
   def initialize(options)
 
+    Curses.noecho                 # Don't echo characters to the screen.
+
     @user = options[:user] || ENV['MYSQL_USER']
     @pass = options[:pass] || ENV['MYSQL_PASSWORD']
     @host = options[:host] || ENV['MYSQL_HOST']
     @db = options[:db] || ENV['MYSQL_DATABASE']
     @port = 3306 || ENV['MYSQL_PORT']
     @interval = options[:interval] || 5
+
+    @page_tracker = {
+      top_row: 4,
+      bottom_row: Curses.lines - 1,
+      current_page: 1,
+      total_pages: 0
+    }
+
+    @process_list = {
+      x: 3,
+      y: 0
+    }
+
+    @current_pos = {
+      x: 0,
+      y: 0
+    }
+
+    @state = 'FREE'
+    @show_sleep = false
+    @freeze_screen = nil
+
     validate
 
-    tbl = Terminal::Table.new headings: [
+    @tbl = Terminal::Table.new headings: [
+      'PID',
       'Time',
       'User',
       'Host',
@@ -48,32 +77,137 @@ class MysqlTop
       Curses.timeout=0
     loop do
 
+      # Listen for key input..
       case getch
       when 'q'
         exit
-      end
+      # Line Feed (Code 10)
+      when 10
+        exit
+      when 'S'
+        @show_sleep = !@show_sleep
+      when 'K'
+        @state = "KILL_MODE"
+        @freeze_screen = @tbl.clone unless (@freeze_screen == @tbl) || @tbl.rows.count == 0
+        Curses.setpos(@process_list[:x],0)
+        nav_key = 0
+        while nav_key != 10
+          break if nav_key == 27
+          # Position tracker for navigating the list
+          process_list_nav = {x: 0, y: 0}
 
-      %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "show processlist"].lines.each do |line|
-        next if line.include?('Sleep')
+          # Draw the frozen process table
+          @freeze_screen.to_s.each_line do |line|
 
-        line = line.split(' ')
+            break if process_list_nav[:x] == Curses.lines - 1
+            Curses.setpos(process_list_nav[:x],process_list_nav[:y])
 
-        row = {
-          id: line[0],
-          user: line[1],
-          host: line[2],
-          db: line[3],
-          cmd: line[4],
-          time: line[5],
-          state: line[6],
-          info: line[7]
+            # While drawing the frozen table, we check our process_list_nav
+            # position against the position we're controlling via @process_list.
+            #
+            # If the current row we're drawing is the row we've incremented or
+            # decremented to, it's the current selected row -- hilight it!
+            #
+            if process_list_nav[:x] == @process_list[:x]
+              Curses.start_color
+              Curses.init_pair(COLOR_RED,COLOR_RED,COLOR_WHITE)
+              Curses.attron(color_pair(COLOR_RED)|A_UNDERLINE) {
+                Curses.addstr(line)
+              }
+                Curses.attrset(A_NORMAL)
+            else
+              Curses.addstr(line)
+            end
+
+            process_list_nav[:x] += 1
+          end
+
+          # Poll for key input (j,k) that we'll use to navigate the
+          # list of processes in the DB process table.
+          #
+          nav_key = getch
+
+          # Logic should follow the drawn table (i.e. dimensions of
+          # navigable content are: (4 => lines.count-2)
+          #
+          if @process_list[:x] > 3 && nav_key.eql?('k')
+
+            # Going up!
+            @process_list[:x] -= 1
+          elsif nav_key.eql?('j') && @process_list[:x] < (@freeze_screen.to_s.lines.count-2)
+
+            # Going down!
+            @process_list[:x] += 1
+          end
+
+          Curses.setpos(@process_list[:x],0)
+        end
+        kill_pid = @freeze_screen.rows[@process_list[:x]-3][0]
+        Thread.new {
+          %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "KILL #{kill_pid}"]
         }
-        tbl << [line[5], line[1], line[2], line[3], line[6], line[4]]
+        write(0,0,@freeze_screen.to_s)
+        @state = "FREE"
+      when '?'
+        @state = "HELP"
+        @freeze_screen = @tbl.clone unless (@freeze_screen == @tbl) || @tbl.rows.count == 0
+
+        Curses.clear
+        help_xy = {x: 0, y: 0}
+        Curses.setpos(0,0)
+        Curses.attrset(A_UNDERLINE)
+        Curses.start_color
+        Curses.init_pair(COLOR_GREEN,COLOR_RED,COLOR_BLACK) 
+        Curses.attron(color_pair(COLOR_GREEN)|A_UNDERLINE) {
+          Curses.addstr("State\tCommand\t\tDescription\n")
+        }
+        Curses.attrset(A_NORMAL)
+
+        help_cmds = [
+          "\tS\t\tInclude 'Sleep' processes\n",
+          "\tp\t\tPause the process monitor\n",
+          "\tk\t\tEnter kill mode -- navigate to kill a process\n"
+        ]
+        help_cmds.each do |help_cmd|
+          help_xy[:x] += 1
+          Curses.addstr(help_cmd)
+        end
+
+        Curses.setpos(Curses.lines-1,0)
+        Curses.addstr("Press any key to continue...")
+
+        while !getch
+
+        end
+        write(0,0,@freeze_screen.to_s)
+        @state = 'FREE'
       end
 
-      write(0,0,tbl.to_s)
-      tbl.rows = tbl.rows.clear
+      # Connect to the MySQL DB and retrieve the process list
+      # This will change soon as I add support for other DB's
+      #
+      Thread.new {
+        %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "show processlist"].lines.each_with_index do |line,index|
+          next if line.include?('Sleep') && !@show_sleep || !@state.eql?('FREE') || index == 0
+
+          line = line.split(' ')
+
+          row = {
+            id: line[0],
+            user: line[1],
+            host: line[2],
+            db: line[3],
+            cmd: line[4],
+            time: line[5],
+            state: line[6],
+            info: line[7]
+          }
+          @tbl << [line[0], line[5], line[1], line[2], line[3], line[6], line[4]]
+        end
+      write(0,0,@tbl.to_s) if @tbl.rows.count > 0
       sleep @interval
+      @tbl.rows = @tbl.rows.clear
+      } unless Thread.list.size > 1 || !@state.eql?('FREE')
 
     end
     ensure
@@ -95,7 +229,7 @@ class MysqlTop
 
   #############################################################################
   # Public: Initializes the screen buffer with specified options.
-  # 
+  #
   # Returns: nothing
   #############################################################################
   def init_screen
@@ -122,13 +256,27 @@ class MysqlTop
   #############################################################################
   def write(x,y,text)
     Curses.setpos(x,y)
-    Curses.addstr(text)
+    text.each_line do |line|
+      break if x == Curses.lines-1
+      Curses.addstr(line) 
+      x += 1
+    end
     for x in 1..Curses.lines
       Curses.deleteln
     end
     Curses.setpos(text.lines.count-1,0)
-    Curses.addstr(text.lines.take(3)[2])
-    Curses.refresh
+    Curses.addstr(text.lines.take(3)[2]) unless text.lines.take(3)[2].nil?
+    Curses.setpos(text.lines.count-1,0)
+  end
+
+  def page(nav,text)
+    if @tbl.rows.count > Curses.lines
+
+    end
+    Curses.setpos(0,0)
+    for x in 0..3
+      Curses.addstr
+    end
   end
 
 end
