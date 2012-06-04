@@ -72,6 +72,30 @@ rake gem:install
 
 in the application folder.
 
+Usage
+------
+
+```
+State   Command         Description
+        S               Include 'Sleep' processes
+        p               Pause the process monitor
+        K               Enter kill mode -- navigate to kill a process
+```
+
+When in 'kill' mode, use the 'j', and 'k', keys to navigate up and down
+as you would in VIM.  Select the process you wish to kill and press
+ENTER.  If you wish to cancel, press ESC.
+
+TODO
+------
+
+Clean up the code!!
+
+Implement scrolling if the list of processes exceeds the terminal
+screen size.
+
+VIM style navigation (#<k/j> for navigating up and down)
+
 Author
 ------
 
