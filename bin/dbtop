@@ -143,9 +143,11 @@ class MysqlTop
           Curses.setpos(@process_list[:x],0)
         end
         kill_pid = @freeze_screen.rows[@process_list[:x]-3][0]
-        Thread.new {
-          %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "KILL #{kill_pid}"]
-        }
+        if nav_key == 10
+          Thread.new {
+            %x[mysql -A -u #@user -p#@pass -h #@host #@db -e "KILL #{kill_pid}"]
+          }
+        end
         write(0,0,@freeze_screen.to_s)
         @state = "FREE"
       when '?'
