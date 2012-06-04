@@ -168,7 +168,7 @@ class MysqlTop
         help_cmds = [
           "\tS\t\tInclude 'Sleep' processes\n",
           "\tp\t\tPause the process monitor\n",
-          "\tk\t\tEnter kill mode -- navigate to kill a process\n"
+          "\tK\t\tEnter kill mode -- navigate to kill a process\n"
         ]
         help_cmds.each do |help_cmd|
           help_xy[:x] += 1
